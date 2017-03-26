@@ -50,14 +50,16 @@
       (when (not (empty? workList))   
         (let [nodeUnderInvestigation (first workList)]
           (letfn [ (addEdgesAndFilterMarked [nodesUnderInvestigation nodeUnderInvestigation]
-                     (let [edges (.getBackwardEdges nodeUnderInvestigation)]
-                       (letfn [(toNode [edge]
+                     (let [edges (.getBackwardEdges nodeUnderInvestigation)
+                           forwardEdges (.getForwardEdges nodeUnderInvestigation)]
+                       (letfn [(fromNode [edge]
                                  (.fromNode edge))
                                (notMarked? [node]
                                  (not(.isMarked node)))
-                               ]
+                               (toNode [edge]
+                                 (.toNode edge))]
                          (if (not (nil? edges))
-                           (doall (filter notMarked?  (into workList (doall (map toNode edges)))))
+                           (doall (filter notMarked?  (into (into workList (doall (map fromNode edges))) (doall (map toNode forwardEdges)))))
                            (doall (filter notMarked? workList)))
                          )))]
             ;we mark the node 

@@ -22,7 +22,7 @@
 ;pdg is your program dependence graph 
 ;nodesUnderInvestigation is a list of all the nodes that we want to uses as a criterium to slice
 
-(defn  markVerticesOfSlices [pdg nodesUnderInvestigation]
+(defn  markVerticesOfSlices [pdg nodesUnderInvestigation typeOfSlicing]
   (letfn [     
           ( getAllMarkedNodes [pdg]
             (let [nodes (.getAllNodes pdg)]
@@ -36,18 +36,15 @@
           (setOtherNode [pdg  nodeUnderInvestigation]
             (let [nodes (.getAllNodes pdg)]
               (letfn [(comparison [nodeOfpdg]
-                        (if (.compareTo  nodeUnderInvestigation nodeOfpdg)
-                          (.setMarked nodeOfpdg)
-                          nil))]
-                (map comparison nodes))))]
+                        (if (=  (.getText  nodeUnderInvestigation) (.getText nodeOfpdg))
+                        (.setMarked nodeOfpdg)
+                        nil))]
+               (doall (map comparison nodes)))))]
     
     (loop [workList nodesUnderInvestigation]  
       
-      (when (empty? workList)
-        (print (getAllMarkedNodes pdg))
-        (deleteAllMarks pdg))
-      
-      (when (not (empty? workList))   
+
+      (if (not (empty? workList))   
         (let [nodeUnderInvestigation (first workList)]
           (letfn [ (addEdgesAndFilterMarked [nodesUnderInvestigation nodeUnderInvestigation]
                      (let [edges (.getBackwardEdges nodeUnderInvestigation)
@@ -59,7 +56,9 @@
                                (toNode [edge]
                                  (.toNode edge))]
                          (if (not (nil? edges))
-                           (doall (filter notMarked?  (into (into workList (doall (map fromNode edges))) (doall (map toNode forwardEdges)))))
+                          (if (= typeOfSlicing "forward")
+                            (doall (doall (filter notMarked?  (into workList (doall (map toNode forwardEdges))))))
+                            (doall (doall (filter notMarked?  (into workList (doall (map fromNode edges)))))))
                            (doall (filter notMarked? workList)))
                          )))]
             ;we mark the node 
@@ -70,17 +69,30 @@
             ;since we filter on marked node we know that the first node will be deleted too.
             (recur 
               (addEdgesAndFilterMarked workList nodeUnderInvestigation ))
-            )))
-      )))
+            ))
+            
+        (let [nodes (getAllMarkedNodes pdg)]
+        (deleteAllMarks pdg)
+       nodes))
+      )
+      ))
 
 
+(defn backwardsAndForwardsSlicing [pdg nodesUnderInvestigation]
+ (print (distinct (into (markVerticesOfSlices pdg nodesUnderInvestigation "forward")
+(markVerticesOfSlices pdg nodesUnderInvestigation "backwards")))))
 
+(defn nth-treeset [coll index]
+  (com.google.common.collect.Iterables/get coll index))
 
 
 (def myfiles (pdg/get-java-files  "/Users/Silke/Downloads/JHotDraw51"))
 (def myMethods (pdg/get-ast  "/Users/Silke/Downloads/JHotDraw51"))
 (def mypdg (createpdg (second myMethods)))
 (def nodes (.getAllNodes mypdg))
+(def pdg8 (createpdg (nth-treeset myMethods 8)))
+(def nodes8 (.getAllNodes pdg8))
+
 
 
 

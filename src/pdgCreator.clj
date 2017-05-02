@@ -108,6 +108,8 @@
         (.close writer))
       (print "Sucessfully finished"))))
 
+(defn nth-treeset [coll index]
+  (com.google.common.collect.Iterables/get coll index))
 
 
 

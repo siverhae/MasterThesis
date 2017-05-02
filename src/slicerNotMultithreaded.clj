@@ -79,8 +79,8 @@
 
 
 (defn backwardsAndForwardsSlicing [pdg nodesUnderInvestigation]
- (print (distinct (into (markVerticesOfSlices pdg nodesUnderInvestigation "forward")
-(markVerticesOfSlices pdg nodesUnderInvestigation "backwards")))))
+ (print (namesOfNodes (distinct (into (markVerticesOfSlices pdg nodesUnderInvestigation "forward")
+(markVerticesOfSlices pdg nodesUnderInvestigation "backwards"))))))
 
 (defn nth-treeset [coll index]
   (com.google.common.collect.Iterables/get coll index))

@@ -1,4 +1,6 @@
 (ns changes
+  (:require [slicerNotMultithreaded :as slicer] )
+  (:require [pdgCreator :as pdg] )
   (:require [clojure.core.logic :as logic])
   (:require [damp.ekeko.jdt.astnode :as astnode])
   (:require [damp.ekeko.logic :as el])
@@ -9,7 +11,11 @@
   (:require [qwalkeko.clj.functionalnodes :as changes])
   (:require [qwalkeko.clj.changenavigation :as nav])
   (:require [damp.ekeko.jdt
-             [ast :as jdt]]))
+             [ast :as jdt]])
+  (:require [clojure.java.io :as io])
+  (:import [yoshikihigo.tinypdg.ast.TinyPDGASTVisitor])
+  (:import [yoshikihigo.tinypdg.pe.MethodInfo]))
+
 
 ;Hierboven imports
 ;-------------------------------------------------------------------------------------
@@ -44,17 +50,38 @@
         file (.getFile eclipseVersion filename)
         fullPath (.getFullPath file)
         javaFile (.toFile fullPath)]
-    javaFile))
+    (.getName javaFile)))
 
 
-;we have to give a compilationUnit as parameter
-(defn create-methodsArray [unit]
+(defn createMethods [unit path] 
   (let [methods (new java.util.ArrayList)
-        filepath (getAbsolutePath unit)
-        visitor (new yoshikihigo.tinypdg.ast.TinyPDGASTVisitor
-                  filepath unit methods)]
+        visitor  (new yoshikihigo.tinypdg.ast.TinyPDGASTVisitor path unit methods)]
     (.accept unit visitor)
     methods))
+
+;(defn findMethod [methods]
+;  (map (fn[method] (print (.getName method))) methods))
+
+
+(defn method-name [method]
+  (ast/has-clj-unwrapped :identifier (ast/has-clj-unwrapped :name method)))
+
+(defn findMethod [methods method]
+  (if (not (nil? method))
+    (let [methodName (method-name method)]
+      (loop [methods methods]
+        (if (empty? methods)
+          nil
+          (let [currentMethod (first methods)]
+            (if (= (.getName currentMethod) methodName)
+              currentMethod
+              (recur (next methods)))))))
+    false))
+
+(defn createpdg [method]
+  (when (not (nil? method))
+    (slicer/createpdg method)))
+
 
 (defn encompassing-method [change]
   (logic/run 1 [?parent]
@@ -63,6 +90,10 @@
       (jdt/ast-parent+ ?node ?parent)
       (jdt/ast :MethodDeclaration ?parent))))
 
+
+(defn findEncompassingMethod  [change]
+  (list change (first (encompassing-method change ))))
+
 (defn encompassing-type [change]
   (logic/run 1 [?parent]
     (logic/fresh [?node]
@@ -70,17 +101,18 @@
       (jdt/ast-parent+ ?node ?parent)
       (jdt/ast :TypeDeclaration ?parent))))
 
+
 (defn findEncompassingType  [change]
   (list change (first (encompassing-type change ))))
 
-(defn findEncompassingMethod  [change]
-  (println "change")
-  (println change)
-  (println "method")
-  (println (first (encompassing-method change )))
-  (list change (first (encompassing-method change ))))
+
+(defn getOriginalChangeDeclarative [change]
+  (logic/run 1 [?original]
+    (changes/change-original change ?original)))
 
 
+(defn getOriginalChange [change]
+  (:original change))
 
 
 (defn groupMethodRelatedChanges [listOfChangesAndEncompassingMethods]
@@ -91,38 +123,88 @@
       (let [changeAndEncompassingMethod (first listOfChangesAndEncompassingMethod)
             newMethodRelatedChanges 
             (if (empty? methodRelatedChanges)
-            (assoc methodRelatedChanges (second changeAndEncompassingMethod) (list(first changeAndEncompassingMethod)))
+              (assoc methodRelatedChanges (second changeAndEncompassingMethod) (list(first changeAndEncompassingMethod)))
               (if (contains? methodRelatedChanges (second changeAndEncompassingMethod))
-               (assoc methodRelatedChanges (second changeAndEncompassingMethod) (cons (first changeAndEncompassingMethod) (get methodRelatedChanges (second changeAndEncompassingMethod)))) 
-               (assoc methodRelatedChanges (second changeAndEncompassingMethod) (list (first changeAndEncompassingMethod)))))]
+                (assoc methodRelatedChanges (second changeAndEncompassingMethod) (cons (first changeAndEncompassingMethod) (get methodRelatedChanges (second changeAndEncompassingMethod)))) 
+                (assoc methodRelatedChanges (second changeAndEncompassingMethod) (list (first changeAndEncompassingMethod)))))]
         (recur newMethodRelatedChanges
           (next listOfChangesAndEncompassingMethod))))))
 
 
-(defn createpairseCouples [listOfElems]
-  (let [listOfCouples (list)]
-  (for [firstElem (range 0 (- (count listOfElems) 1))]
-    for [secondElem (range firstElem (- (count listOfElems) 1))]
-    
-  (* x x))
+(defn createPairCouples [listOfElems]
+  (loop 
+    [firstElem 0 
+     resList (list)]
+    (if (>= firstElem (count listOfElems))
+      resList
+      (recur (+ firstElem 1)
+        (into resList
+          (loop [secondElem (+ 1 firstElem )
+                 resListTemp (list)]
+            (if (>= secondElem (count listOfElems))
+              resListTemp
+              (recur (+ 1 secondElem)
+                (conj resListTemp (list (nth listOfElems firstElem) (nth  listOfElems secondElem)))))))))))
 
-  (defn createpairseCouples [listOfElems]
-    (loop 
-      [firstElem 0 
-      resList (list)]
-      (if (>= firstElem (count listOfElems))
-        resList
-     (recur (+ firstElem 1)
-            (conj resList
-            (loop [secondElem firstElem 
-                   resListTemp (list)]
-              (if (>= secondElem (count listOfElems))
-                resListTemp
-                (recur (+ 1 secondElem)
-                        (conj resListTemp (cons (nth listOfElems firstElem) (nth  listOfElems secondElem)))))))))))
-        
 
- 
+(defn hashmapPair [groupedChanges]
+  (let [methods (keys groupedChanges)]
+    (loop [methods (keys groupedChanges)
+           hashmapPaired (hash-map)]
+      (if (empty? methods)
+        hashmapPaired
+        (let [method (first methods)
+              value (get groupedChanges method)]
+          (recur (next methods)
+            (assoc hashmapPaired method (createPairCouples value))))))))
+
+
+(defn node-is-comment? [node]  
+  (when (and (not (nil? node)) (instance? org.eclipse.jdt.core.dom.ASTNode node)) 
+    (let [id (.getNodeType node)]
+      (or 
+        (= id org.eclipse.jdt.core.dom.ASTNode/BLOCK_COMMENT)
+        (= id org.eclipse.jdt.core.dom.ASTNode/JAVADOC)
+        (= id org.eclipse.jdt.core.dom.ASTNode/LINE_COMMENT)
+        (= id org.eclipse.jdt.core.dom.ASTNode/TEXT_ELEMENT)
+        (= id org.eclipse.jdt.core.dom.ASTNode/TAG_ELEMENT)
+        (recur (.getParent node))))))
+
+(defn change-is-comment? [change]
+  (node-is-comment? (:original change)))
+
+(defn node-is-not-comment? [node]
+  (not (node-is-comment? node)))
+
+
+(defn change-is-not-comment? [change]
+  (node-is-not-comment? (:original change)))
+
+(defn notKeyNil [pair] 
+  (not (nil? (key pair))))
+
+(defn loopOverSlicerTillWeFindCorrectNode [pdg originalfirst]
+  (loop [nodeUnderInvestigation originalfirst]
+    (let [ resultSlicer (slicer/backwardsAndForwardsSlicing pdg (list nodeUnderInvestigation))]
+    (if (not (empty? resultSlicer))
+      resultSlicer
+      (recur (.getParent nodeUnderInvestigation))))))
+  
+
+(defn partOf [node markedNodes]
+  (loop [workList markedNodes
+         bool false] 
+    (if (empty? workList)
+      bool
+      (let [nodeUnderInvestigation (first workList)
+            originalNode (clojure.string/trim-newline(.toString node))
+            textNodeUnderInvestigation (.getText nodeUnderInvestigation)]
+        (if (.contains textNodeUnderInvestigation originalNode )
+         (do (println textNodeUnderInvestigation) (println originalNode)(println true))
+         (do (println  textNodeUnderInvestigation) (println originalNode)(println "gy")))
+        (recur (next workList)
+          bool)))))
+
 ;We want to see if changes (represented by a versionNumber) is an atomic commit or not
 (defn changesSlicer [versionNumber a-model a-graph]
   (let  [version (find-version versionNumber a-graph)
@@ -144,19 +226,46 @@
                     pathOfPred (getAbsolutePath pred-version file)
                     pathOfCurrent (getAbsolutePath version file)
                     changes (changes/get-ast-changes pred current)
-                    listOfChanges (:changes changes)
+                    listOfChanges (filter change-is-not-comment? (:changes changes))
                     listOfChangesAndEncompassingMethod  (doall (map findEncompassingMethod listOfChanges))
-                    groupedChanges (groupMethodRelatedChanges listOfChangesAndEncompassingMethod)]
-                
-           ; (println groupedChanges)
-           ; (println (first (keys groupedChanges)))
-           
-            (list changes)
-                ))
+                    groupedChanges  (groupMethodRelatedChanges listOfChangesAndEncompassingMethod)
+                    groupedPairedChanges (hashmapPair groupedChanges)
+                    methods (createMethods pred pathOfPred)]
+                (letfn[(partOfSlice [key]
+                         (let [vals (get groupedPairedChanges key)
+                               method (findMethod methods key)
+                               pdg (if method (createpdg method) false)
+                               ]
+                           (letfn [(forEachPairOfChanges[pairOfChanges]
+                                     (let [firstChange (first pairOfChanges)
+                                           originalfirst (getOriginalChange firstChange)
+                                           secondChange (second pairOfChanges)
+                                           originalsecond (getOriginalChange secondChange)
+                                           markedNodesFirst (loopOverSlicerTillWeFindCorrectNode pdg originalfirst)
+                                           markedNodesSecond (loopOverSlicerTillWeFindCorrectNode pdg originalsecond)
+                                           secondPartOfFirst (partOf originalsecond markedNodesFirst)
+                                    
+                                           ]
+
+                                       ))]
+                             (doall (map forEachPairOfChanges vals))
+                             ;   (pdg/buildPDG (list method))
+                             )))] 
+                  (doall (map partOfSlice (keys groupedPairedChanges)))
+                  
+                  
+                  )))
             ]
       (doall (map unitWork units)))))
 
 
-
-
+(defn forEachPairOfChanges[pairOfChanges]
+  (let [firstChange (first pairOfChanges)
+        originalfirst (getOriginalChange firstChange)
+        secondChange (second pairOfChanges)
+        originalsecond (getOriginalChange secondChange)]
+    (println "new")
+    (println originalfirst)
+    (println originalsecond)
+    pairOfChanges))
 

@@ -103,5 +103,15 @@ java.io.File
                 (do (println "assoc3") (println (second changeAndEncompassingMethod)) (assoc methodRelatedChanges (second changeAndEncompassingMethod) (list (first changeAndEncompassingMethod))))))]
         (recur newMethodRelatedChanges
           (next listOfChangesAndEncompassingMethod))))))
+  
+  
+ markedNode (while 
+                                                        (empty? (slicer/backwardsAndForwardsSlicing pdg (list originalfirst)))
+                                                        (print "slicer")
+                                                        (print (slicer/backwardsAndForwardsSlicing pdg (list originalfirst)) nil)
+                                                        (slicer/backwardsAndForwardsSlicing pdg (list (.getParent originalfirst))))
+                                           ]
+                        
+                        
 
 

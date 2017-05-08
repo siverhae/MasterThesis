@@ -20,6 +20,13 @@
 ;Hierboven imports
 ;-------------------------------------------------------------------------------------
 
+
+;macro defined in order to be able to evaluate the or function when we apply it.
+(defmacro make-fn [m] 
+  `(fn [& args#]
+     (eval 
+       (cons '~m args#))))
+
 (defn a-model [ ] (first (filter #(instance? qwalkeko.HistoryProjectModel %)
                            (damp.ekeko.ekekomodel/all-project-models))))
 
@@ -180,30 +187,28 @@
 (defn change-is-not-comment? [change]
   (node-is-not-comment? (:original change)))
 
-(defn notKeyNil [pair] 
-  (not (nil? (key pair))))
 
 (defn loopOverSlicerTillWeFindCorrectNode [pdg originalfirst]
   (loop [nodeUnderInvestigation originalfirst]
     (let [ resultSlicer (slicer/backwardsAndForwardsSlicing pdg (list nodeUnderInvestigation))]
-    (if (not (empty? resultSlicer))
-      resultSlicer
-      (recur (.getParent nodeUnderInvestigation))))))
-  
+      (if (not (empty? resultSlicer))
+        (list originalfirst resultSlicer)
+        (recur (.getParent nodeUnderInvestigation))))))
+
 
 (defn partOf [node markedNodes]
   (loop [workList markedNodes
-         bool false] 
+         bool (list)] 
     (if (empty? workList)
       bool
       (let [nodeUnderInvestigation (first workList)
             originalNode (clojure.string/trim-newline(.toString node))
             textNodeUnderInvestigation (.getText nodeUnderInvestigation)]
         (if (.contains textNodeUnderInvestigation originalNode )
-         (do (println textNodeUnderInvestigation) (println originalNode)(println true))
-         (do (println  textNodeUnderInvestigation) (println originalNode)(println "gy")))
-        (recur (next workList)
-          bool)))))
+          (recur (next workList)
+            (conj bool true))
+          (recur (next workList)
+            (conj bool false)))))))
 
 ;We want to see if changes (represented by a versionNumber) is an atomic commit or not
 (defn changesSlicer [versionNumber a-model a-graph]
@@ -228,7 +233,12 @@
                     changes (changes/get-ast-changes pred current)
                     listOfChanges (filter change-is-not-comment? (:changes changes))
                     listOfChangesAndEncompassingMethod  (doall (map findEncompassingMethod listOfChanges))
-                    groupedChanges  (groupMethodRelatedChanges listOfChangesAndEncompassingMethod)
+                    groupedChanges (into {}
+                                     (filter 
+                                       (fn [x]
+                                         (not (nil? (key x))))
+                                       (groupMethodRelatedChanges listOfChangesAndEncompassingMethod))
+                                     )
                     groupedPairedChanges (hashmapPair groupedChanges)
                     methods (createMethods pred pathOfPred)]
                 (letfn[(partOfSlice [key]
@@ -243,29 +253,17 @@
                                            originalsecond (getOriginalChange secondChange)
                                            markedNodesFirst (loopOverSlicerTillWeFindCorrectNode pdg originalfirst)
                                            markedNodesSecond (loopOverSlicerTillWeFindCorrectNode pdg originalsecond)
-                                           secondPartOfFirst (partOf originalsecond markedNodesFirst)
-                                    
-                                           ]
+                                           secondPartOfFirst (apply (make-fn or) (partOf (first markedNodesSecond) (second markedNodesFirst)))
+                                           firstPartOfSecond (apply (make-fn or)(partOf (first markedNodesFirst) (second markedNodesSecond)))]
+                                       
+                                       (or secondPartOfFirst firstPartOfSecond)))]
+                             (println  (count vals))
+                             (doall (map forEachPairOfChanges vals)))))] 
 
-                                       ))]
-                             (doall (map forEachPairOfChanges vals))
-                             ;   (pdg/buildPDG (list method))
-                             )))] 
                   (doall (map partOfSlice (keys groupedPairedChanges)))
                   
                   
                   )))
             ]
       (doall (map unitWork units)))))
-
-
-(defn forEachPairOfChanges[pairOfChanges]
-  (let [firstChange (first pairOfChanges)
-        originalfirst (getOriginalChange firstChange)
-        secondChange (second pairOfChanges)
-        originalsecond (getOriginalChange secondChange)]
-    (println "new")
-    (println originalfirst)
-    (println originalsecond)
-    pairOfChanges))
 
